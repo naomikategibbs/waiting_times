@@ -1,6 +1,9 @@
 
 # This script is for a decision model estimating the health impact of waiting 
-# for elective procedures in the NHS in England
+# for elective procedures in the NHS in England.
+# It was created by Naomi Gibbs at York University, naomi.gibbs@york.ac.uk. 
+# It is published under a CC-BY license.
+
 
 # The model accounts for age/sex/IMD quintile
 # The model can be used for various health conditions
