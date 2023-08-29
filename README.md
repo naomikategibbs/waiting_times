@@ -8,3 +8,6 @@ The model is primarily a Markov model.
 
 The full methodological approach and all the data inputs are outlined in the following paper: "include link to published paper."
 
+For further information please get in touch with naomi.gibbs@york.ac.uk
+
+This work is published under a CC-BY license
