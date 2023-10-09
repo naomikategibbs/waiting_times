@@ -1,9 +1,6 @@
 
 # This script is for a decision model estimating the health impact of waiting 
-# for elective procedures in the NHS in England.
-# It was created by Naomi Gibbs at York University, naomi.gibbs@york.ac.uk. 
-# It is published under a CC-BY license.
-
+# for elective procedures in the NHS in England
 
 # The model accounts for age/sex/IMD quintile
 # The model can be used for various health conditions
@@ -100,12 +97,12 @@ starting_population <- c(1,0,0,0,0,0) ## all people/person starts in the first s
 
 dr_o <- 0.035 ## set the discount rate for outcomes (3.5%)
 
-sim_runs <- 1 ## sets the number of simulations for the PSA (we don't need 
+sim_runs <- 1000 ## sets the number of simulations for the PSA (we don't need 
 # this line when we run it on viking)
 
 #### the model function #####
 waiting_times_model <- function(day_of_proc, age, female, imd_quintile,
-                charlsonindex, mean_wait){
+               charlsonindex, mean_wait){
 
   # this is a function to run the waiting times model
   # INPUTS: day_of_proc = the day on which the procedure takes place, set by the modeller
@@ -120,16 +117,6 @@ waiting_times_model <- function(day_of_proc, age, female, imd_quintile,
   #         is incorrect
   # OUTPUTS:Vector of 12 values: QALYs, discounted QALYs, LYs, discounted LYs
   #         split into "normal", acute and private
-
-# to run the code inside the function comment out the function
-# and comment in the below parameters
-# 
-# day_of_proc <- 10
-# age <-  64
-# female <- 0
-# imd_quintile <- 3
-# charlsonindex <- 4.3
-# mean_wait <- 63.045
 
 
 #### 0: Setting the number of cycles for the model ####
@@ -185,6 +172,10 @@ post_proc_utility <- pre_proc_utility_nodd + utility_imp
 m <- as.matrix(postproc_HRQoL_decrements[,2])
 
 post_proc_utility <- post_proc_utility + day_of_proc*m[1,1] + (1-female)*day_of_proc*m[3,1]
+
+# plot(pre_proc_utility, ylim = c(.2, 0.9), xlim = c(0,500))
+# plot(pre_proc_utility_nodd, ylim = c(.2, 0.9), xlim = c(0,500))
+# plot(post_proc_utility, ylim = c(.2, 1), xlim = c(0,500))
 
 # applying a gradient for IMD
 # select the row based on age and female and then
@@ -258,11 +249,12 @@ life_tables_uk_imd <- life_tables_uk_imd_both[life_tables_uk_imd_both$female == 
 
 # running the function to generate the pre and post transition probabilities to 
 # death
-tps_list <-  mortality_tps(df1, life_tables_uk_imd, survival_model, 
+tps_list <- mortality_tps(df1, life_tables_uk_imd, survival_model, 
                            survival_model_vcov, cycles_v)
 
 pre_proc_mortality <- tps_list[[1]]
 post_proc_mortality <- tps_list[[2]]
+
 
 #### 5: creating the transition probabilities ####
 # this section generates all the transition probabilities and gathers them into
@@ -288,10 +280,7 @@ time_dependent_probabilities$prob_exit_acute <-
   ifelse(time_dependent_probabilities$prob_proc == 1, 0, time_dependent_probabilities$prob_exit_acute)
 
 ## probability of exit to private
-# currently this is constant with time.
-prob_exit_private <- prob_exit_private_df$mean[prob_exit_private_df$imd == imd_quintile]
-                           
-time_dependent_probabilities$prob_exit_private <- prob_exit_private
+time_dependent_probabilities$prob_exit_private <- prob_exit_private_df$mean[prob_exit_private_df$imd == imd_quintile]
 # once the procedure has happened for all those on the waiting list then the 
 # probability of switching to private care becomes zero
 time_dependent_probabilities$prob_exit_private <- 
@@ -310,7 +299,7 @@ time_dependent_probabilities$post_proc_mortality <- post_proc_mortality
 # risk has been dealt with separately
 time_dependent_probabilities$post_proc_mortality[1:(day_of_proc+30)] <- 0
 
-#### 6a: creating a transition matrix ####
+#### 6: creating a transition matrix ####
   
   # start with a three dimensional empty array
   # (number of states by number of states by number of cycles)
@@ -376,81 +365,6 @@ time_dependent_probabilities$post_proc_mortality[1:(day_of_proc+30)] <- 0
   # check
   transition_matrix[,,41]
   
-  
-#### 6b: creating a second transition matrix to cap private procedures ####
-
-# We do not want a situation where an unrealistic proportion of the patients 
-# go private. No evidence was found to inform the correct proportion so we use a 
-# "rule of thumb" of no more than twice the proportion at baseline
-  
-# first of all the maximum
-max_private_patients <- starting_population[1] * (2 * prob_exit_private_df$prob_private[prob_exit_private_df$imd == imd_quintile])
-
-# secondly we need two transition matrices, the one we have created above and one
-# where nobody flows off into private. We will switch to this when creating the 
-# trace if the max proportion is reached
-
-transition_matrix_2 <- array(data=0,dim=c(n_states, n_states, cycles),
-                           dimnames= list(state_names, state_names, 1:cycles)) 
-
-### create a loop that creates a time dependent transition matrix for each cycle
-for (i in 1:cycles) {
-  
-  ## transitions from being on the waiting list
-  # staying on the waiting list...
-  transition_matrix_2["on_waiting_list","on_waiting_list",i] <- 
-    ifelse(time_dependent_probabilities$prob_proc[i] == 1, 0,
-           1 - time_dependent_probabilities$pre_proc_mortality[i] - 
-             time_dependent_probabilities$prob_exit_acute[i])
-  
-  ## die whilst on the waiting list...
-  transition_matrix_2["on_waiting_list","dead",i] <-  
-    ifelse(time_dependent_probabilities$prob_proc[i] == 1, 0,
-           time_dependent_probabilities$pre_proc_mortality[i])             
-  
-  ## exit the waiting list for acute op  ...
-  transition_matrix_2["on_waiting_list","exit_acute",i] <- 
-    ifelse(time_dependent_probabilities$prob_proc[i] == 1, 0, time_dependent_probabilities$prob_exit_acute[i])
-  
-  ## exit the waiting list for private  ...
-  transition_matrix_2["on_waiting_list","exit_private",i] <- 0
-  
-  ## have proc and move to the peri dead state 
-  transition_matrix_2["on_waiting_list","peri_dead",i] <-  
-    ifelse(time_dependent_probabilities$prob_proc[i] == 1, 
-           time_dependent_probabilities$periop_mortality[i], 0)    
-  
-  ## have proc and move to the post proc state 
-  transition_matrix_2["on_waiting_list","post_proc",i] <-  
-    ifelse(time_dependent_probabilities$prob_proc[i] == 1, 
-           1 - time_dependent_probabilities$periop_mortality[i], 0)    
-  
-  
-  ## transitions from exiting for acute care
-  transition_matrix_2["exit_acute","exit_acute",i] <- 1 ## no transitions out of exit
-  
-  ## transitions from exiting to get private care
-  transition_matrix_2["exit_private","exit_private",i] <- 1 ## no transitions out of exit
-  
-  ## transitions out of post_proc
-  transition_matrix_2["post_proc","post_proc",i] <- 1 - time_dependent_probabilities$post_proc_mortality[i]
-  transition_matrix_2["post_proc","dead",i] <- time_dependent_probabilities$post_proc_mortality[i]
-  
-  
-  ## no transitions out of peri dead
-  transition_matrix_2["peri_dead","peri_dead",i] <- 1 ## no transitions out of death
-  
-  
-  ## no transitions out of dead
-  transition_matrix_2["dead","dead",i] <- 1 ## no transitions out of death
-}
-
-# check
-transition_matrix_2[,,40]
-
-
-# now we have everything we need to set up the trace
-  
 #### 7: creating a trace ####
 
 # create a trace which is an empty matrix with one column for each state
@@ -462,20 +376,11 @@ colnames(trace_waiting_times) <- state_names
 # start at time 0 on the waiting list
 trace_waiting_times[1,] <- starting_population%*%transition_matrix[,,1]
 
-# this selects the matrix to multiply by depending on whether the max
-# proportion of private patients has been reached
 for (i in 2:cycles) {
-  
-  trace_waiting_times[i,] <- 
-    if (trace_waiting_times[i-1,3] < max_private_patients){
-      trace_waiting_times[i-1,]%*%transition_matrix[,,i]
-    } 
-  else {trace_waiting_times[i-1,]%*%transition_matrix_2[,,i]
-}
+  trace_waiting_times[i,] <- trace_waiting_times[i-1,]%*%transition_matrix[,,i]
 }
 
 rowSums(trace_waiting_times) # check each row sums to the number who started 
-
 # in the model
   
 #### 8: summing days of LDs and QALDs ####
@@ -668,7 +573,7 @@ post_proc_utility <- pre_proc_utility_nodd + utility_imp
 # adding the post procedure utility decrement from waiting (we only have data
 # on this for hips and knees)
 post_proc_utility <- post_proc_utility + day_of_proc*m[1,1] +
-                      (1-female)*day_of_proc*m[3,1]
+  (1-female)*day_of_proc*m[3,1]
 
 # then don't forget the multiplication factor which was selected based on the age
 # the person entered the model and their sex
@@ -888,9 +793,128 @@ output
   
 }  
 
-#### running the function ####
 
 
-waiting_times_model(day_of_proc = 7*18, age = 60, female = 0, imd_quintile = 3,
-                    charlsonindex = 4.5, mean_wait = 60)
+#### creating an array to put the results in ####
+
+# creating an empty data frame for simulation results to fill:
+simulation_results <- data.frame("QALYs" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_QALYs" = rep(as.numeric(NA), sim_runs),
+                                 "LYs" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_LYs" = rep(as.numeric(NA), sim_runs),
+                                 "QALYs_A" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_QALYs_A" = rep(as.numeric(NA), sim_runs),
+                                 "LYs_A" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_LYs_A" = rep(as.numeric(NA), sim_runs),
+                                 "QALYs_P" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_QALYs_P" = rep(as.numeric(NA), sim_runs),
+                                 "LYs_P" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_QALYs_P" = rep(as.numeric(NA), sim_runs),
+                                 "on_waiting_list" = rep(as.numeric(NA), sim_runs),
+                                 "exit_acute" = rep(as.numeric(NA), sim_runs),
+                                 "exit_private" = rep(as.numeric(NA), sim_runs),
+                                 "post_proc" = rep(as.numeric(NA), sim_runs),
+                                 "peri_dead" = rep(as.numeric(NA), sim_runs),
+                                 "dead" = rep(as.numeric(NA), sim_runs),
+                                 "peri_acute" = rep(as.numeric(NA), sim_runs),
+                                 "peri_private" = rep(as.numeric(NA), sim_runs))
+## use the rep() function to create sim_runs rows of values
+                                 
+#### subgroup analysis ####
+
+#### create an array to store the results of the analysis ####
+
+# creating an empty data frame for simulation results to fill:
+simulation_results <- data.frame("QALYs" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_QALYs" = rep(as.numeric(NA), sim_runs),
+                                 "LYs" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_LYs" = rep(as.numeric(NA), sim_runs),
+                                 "QALYs_A" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_QALYs_A" = rep(as.numeric(NA), sim_runs),
+                                 "LYs_A" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_LYs_A" = rep(as.numeric(NA), sim_runs),
+                                 "QALYs_P" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_QALYs_P" = rep(as.numeric(NA), sim_runs),
+                                 "LYs_P" = rep(as.numeric(NA), sim_runs),
+                                 "Discounted_LYs_P" = rep(as.numeric(NA), sim_runs),
+                                 "on_waiting_list" = rep(as.numeric(NA), sim_runs),
+                                 "exit_acute" = rep(as.numeric(NA), sim_runs),
+                                 "exit_private" = rep(as.numeric(NA), sim_runs),
+                                 "post_proc" = rep(as.numeric(NA), sim_runs),
+                                 "peri_dead" = rep(as.numeric(NA), sim_runs),
+                                 "dead" = rep(as.numeric(NA), sim_runs),
+                                 "peri_acute" = rep(as.numeric(NA), sim_runs),
+                                 "peri_private" = rep(as.numeric(NA), sim_runs))
+## use the rep() function to create sim_runs rows of values
+
+#### subgroup analysis ####
+
+# create an array to store the results of the analysis
+
+subgroups_names <- c("Male poorest", "Male poorer", "Male middle", 
+                     "Male richer", "Male richest", "Female poorest", 
+                     "Female poorer", "Female middle", "Female richer", 
+                     "Female richest")
+subgroups_n <- length(subgroups_names)
+
+simulation_subgroups <- array(data = 0, dim = c(
+  length(colnames(simulation_results)), 
+  subgroups_n),
+  dimnames = list( 
+    colnames(simulation_results), 
+    subgroups_names))
+
+
+# Run model for each subgroup, inputting the imd and sex into the function, and 
+# record results within the array we use the subgroup_data from the HES data 
+# used to estimate our survival models to estimate age and charlson
+# index for each sex/imd group
+
+
+simulation_subgroups[,1] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 0 & subgroup_data$imd_quintile == 1], female = 0, imd_quintile = 1,
+                                                charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 0 & subgroup_data$imd_quintile == 1], 
+                                                mean_wait = subgroup_data$days_wait[subgroup_data$female == 0 & subgroup_data$imd_quintile == 1])
+
+simulation_subgroups[,2] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 0 & subgroup_data$imd_quintile == 2], female = 0, imd_quintile = 2,
+                                                charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 0 & subgroup_data$imd_quintile == 2], 
+                                                mean_wait = subgroup_data$days_wait[subgroup_data$female == 0 & subgroup_data$imd_quintile == 2])
+
+simulation_subgroups[,3] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 0 & subgroup_data$imd_quintile == 3], female = 0, imd_quintile = 3,
+                                                charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 0 & subgroup_data$imd_quintile == 3], 
+                                                mean_wait = subgroup_data$days_wait[subgroup_data$female == 0 & subgroup_data$imd_quintile == 3])
+
+simulation_subgroups[,4] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 0 & subgroup_data$imd_quintile == 4], female = 0, imd_quintile = 4,
+                                                charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 0 & subgroup_data$imd_quintile == 4], 
+                                                mean_wait = subgroup_data$days_wait[subgroup_data$female == 0 & subgroup_data$imd_quintile == 4])
+
+simulation_subgroups[,5] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 0 & subgroup_data$imd_quintile == 5], female = 0, imd_quintile = 5,
+                                                charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 0 & subgroup_data$imd_quintile == 5], 
+                                                mean_wait = subgroup_data$days_wait[subgroup_data$female == 0 & subgroup_data$imd_quintile == 5])
+
+simulation_subgroups[,6] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 1 & subgroup_data$imd_quintile == 1], female = 1, imd_quintile = 1,
+                                                charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 1 & subgroup_data$imd_quintile == 1], 
+                                                mean_wait = subgroup_data$days_wait[subgroup_data$female == 1 & subgroup_data$imd_quintile == 1])
+
+simulation_subgroups[,7] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 1 & subgroup_data$imd_quintile == 2], female = 1, imd_quintile = 2,
+                                                charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 1 & subgroup_data$imd_quintile == 2], 
+                                                mean_wait = subgroup_data$days_wait[subgroup_data$female == 1 & subgroup_data$imd_quintile == 2])
+
+simulation_subgroups[,8] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 1 & subgroup_data$imd_quintile == 3], female = 1, imd_quintile = 3,
+                                                charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 1 & subgroup_data$imd_quintile == 3], 
+                                                mean_wait = subgroup_data$days_wait[subgroup_data$female == 1 & subgroup_data$imd_quintile == 3])
+
+simulation_subgroups[,9] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 1 & subgroup_data$imd_quintile == 4], female = 1, imd_quintile = 4,
+                                                charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 1 & subgroup_data$imd_quintile == 4], 
+                                                mean_wait = subgroup_data$days_wait[subgroup_data$female == 1 & subgroup_data$imd_quintile == 4])
+
+simulation_subgroups[,10] <- waiting_times_model(day_of_proc = 7*36, age = subgroup_data$age[subgroup_data$female == 1 & subgroup_data$imd_quintile == 5], female = 1, imd_quintile = 5,
+                                                 charlsonindex = subgroup_data$charlsonindex[subgroup_data$female == 1 & subgroup_data$imd_quintile == 5], 
+                                                 mean_wait = subgroup_data$days_wait[subgroup_data$female == 1 & subgroup_data$imd_quintile == 5])
+
+
+
+
+
+saveRDS(simulation_subgroups, file = "outputs/simulation_subgroups.Rds")
+
 
