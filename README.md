@@ -4,7 +4,7 @@ This version of the model is deterministic. It draws in a number of parameter in
 as Hospital Episode Statistics (HES), Office for National Statistics mortality figures, Patient Reported Outcome Measures (PROMs) and 
 Private Health Information Network. It also draws on data from the academic literature.
 
-Only the model is provided and the data is not shared. Some of the model inputs are drawn from confidential, protected data, namely the HES and PROMs data.
+Only the model is provided, and the data is not shared as some of the model inputs are estimated from confidential, protected data, namely the HES and PROMs data.
 
 The model is primarily a Markov model. 
 
