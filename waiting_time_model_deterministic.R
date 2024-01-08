@@ -12,13 +12,6 @@ library(flexsurv)
 library(stats)
 library(readxl)
 
-#### CHOOSE PROCEDURE (e.g. cabg, hip, cataract etc) ####
-
-# set the working directory to whichever procedure you want to use by changing
-# the final part of the path (e.g. cabg, hip, cataract etc)
-setwd("G:/Shared drives/ESHCRU EEPRU Waiting Times project/Waiting times model/hip")
-
-
 #### load models and data and functions ####
 # all of the inputs needed for the model (parameters and regression models) are 
 # kept in the input folder for the specific condition of interest
